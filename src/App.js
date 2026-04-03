@@ -162,6 +162,7 @@ function calcHACRP(hosp, totalHAIs, prevented) {
 
 function runAll(hosp, pFrac, seqCost, incSSI, useVar) {
   const totalHAIs = Object.entries(hosp.hais).reduce((a,[k,v])=>k!=="ssi"||incSSI?a+v:a,0);
+  const costTable = useVar ? HAI_COSTS_VARIABLE : HAI_COSTS_TOTAL;
   const out={};
   for (const model of MODELS) {
     const seqs       = calcSeqs(hosp,model,incSSI);
