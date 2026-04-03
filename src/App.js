@@ -160,7 +160,7 @@ function calcHACRP(hosp, totalHAIs, prevented) {
   return { maxPenalty:maxP, baselineExposure:base, reducedExposure:base*(1-rf*0.6), saved:base*rf*0.6 };
 }
 
-function runAll(hosp, pFrac, seqCost, incSSI, useVariableCost) {
+function runAll(hosp, pFrac, seqCost, incSSI, useVar) {
   const totalHAIs = Object.entries(hosp.hais).reduce((a,[k,v])=>k!=="ssi"||incSSI?a+v:a,0);
   const out={};
   for (const model of MODELS) {
