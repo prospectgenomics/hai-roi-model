@@ -162,7 +162,6 @@ function calcHACRP(hosp, totalHAIs, prevented) {
 
 function runAll(hosp, pFrac, seqCost, incSSI, useVariableCost) {
   const totalHAIs = Object.entries(hosp.hais).reduce((a,[k,v])=>k!=="ssi"||incSSI?a+v:a,0);
-  const costTable = useVariableCost ? HAI_COSTS_VARIABLE : HAI_COSTS_TOTAL;
   const out={};
   for (const model of MODELS) {
     const seqs       = calcSeqs(hosp,model,incSSI);
@@ -353,7 +352,6 @@ function CustomTab({pFrac, seqCost, incSSI, setIncSSI, useVariableCost}) {
   const {data:allData} = useMemo(()=>runAll(custom,pFrac,seqCost,incSSI,useVariableCost),[custom,pFrac,seqCost,incSSI,useVariableCost]);
   const medRev = custom.totalRevenueMn*1e6*custom.medicareRevenuePct;
   const hasData = custom.totalRevenueMn>0 || totalHAIs>0;
-  const costTable = useVariableCost ? HAI_COSTS_VARIABLE : HAI_COSTS_TOTAL;
 
   const STEPS = ["Identity","Financials","HAI Counts","Culture Volumes","Results"];
 
