@@ -100,10 +100,10 @@ const CULTURE_LABELS = { mrsa:"MRSA isolates/yr", cdi:"CDI positive tests/yr", c
 const AVG_CLUSTER_SIZE = 5;
 
 const MODELS = [
-  { id:"m1", label:"Model 1", name:"Full Surveillance",    color:C.teal,   detectionRate:0.90, interventionLagCases:1.5, envMultiplier:1.25, valueType:"immediate", desc:"All positive clinical cultures sequenced in real time + environmental sampling triggered by confirmed infection in high-risk units (NICU/ICU). Continuous phylogenetic context." },
-  { id:"m2", label:"Model 2", name:"Prospective Clinical", color:C.teal2,  detectionRate:0.73, interventionLagCases:2.5, envMultiplier:1.0,  valueType:"immediate", desc:"Every positive clinical culture sequenced as reported. No environmental sampling. Real-time phylogenetic context from clinical specimens only." },
-  { id:"m3", label:"Model 3", name:"Semi-Prospective",     color:C.amber,  detectionRate:0.40, interventionLagCases:5.0, envMultiplier:1.0,  valueType:"delayed",   desc:"Sequencing triggered when IP suspects a cluster (2+ cases, same unit, overlapping timeline). Prior phylogenetic context unavailable." },
-  { id:"m4", label:"Model 4", name:"Retrospective Only",   color:C.red,    detectionRate:0.20, interventionLagCases:8.0, envMultiplier:1.0,  valueType:"future",    desc:"Formal outbreak declared before any sequencing. Archived isolates pulled forensically. Near-zero current prevention; value is reservoir identification and future outbreak response speed." },
+  { id:"m1", label:"Model 1", name:"Full Surveillance",    color:C.teal,   detectionRate:0.90, interventionLagCases:1.5, envMultiplier:1.25, valueType:"immediate", desc:"All positive cultures sequenced in real time with environmental sampling triggered by confirmed infection. Continuous phylogenetic context." },
+  { id:"m2", label:"Model 2", name:"Prospective Clinical", color:C.teal2,  detectionRate:0.73, interventionLagCases:2.5, envMultiplier:1.0,  valueType:"immediate", desc:"Every positive clinical culture sequenced as reported. Real-time phylogenetic context from clinical specimens only." },
+  { id:"m3", label:"Model 3", name:"Semi-Prospective",     color:C.amber,  detectionRate:0.40, interventionLagCases:5.0, envMultiplier:1.0,  valueType:"delayed",   desc:"Sequencing triggered when IP suspects a cluster (2+ cases, same unit). No prior phylogenetic context available." },
+  { id:"m4", label:"Model 4", name:"Retrospective Only",   color:"#78716c", detectionRate:0.20, interventionLagCases:8.0, envMultiplier:1.0,  valueType:"future",    desc:"Outbreak declared before sequencing begins. Archived isolates pulled forensically. Value is reservoir identification and future response speed." },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,11 +122,13 @@ function calcSeqs(hosp, model, incSSI) {
   return s;
 }
 
-function calcPrevented(hosp, model, pFrac, incSSI) {
+function calcPrevented(hosp, model, pFrac, incSSI, tatDays) {
   const types = incSSI ? ["clabsi","cauti","cdi","mrsa","vae","ssi"] : ["clabsi","cauti","cdi","mrsa","vae"];
+  // TAT scales lag for real-time models only (M1/M2). Reference TAT = 3 days.
+  const tatScale = (model.id==="m1"||model.id==="m2") ? tatDays/3 : 1;
+  const effectiveLag = model.interventionLagCases * tatScale;
   // Lag fraction relative to avg cluster size (R13, R19) — NOT annual incidence
-  // Fixed denominator avoids falsely penalising rare organisms like CLABSI
-  const lagFrac = Math.min(model.interventionLagCases / AVG_CLUSTER_SIZE, 0.85);
+  const lagFrac = Math.min(effectiveLag / AVG_CLUSTER_SIZE, 0.85);
   let total=0; const byType={};
   for (const t of types) {
     const annual = hosp.hais[t] || 0;
@@ -160,13 +162,13 @@ function calcHACRP(hosp, totalHAIs, prevented) {
   return { maxPenalty:maxP, baselineExposure:base, reducedExposure:base*(1-rf*0.6), saved:base*rf*0.6 };
 }
 
-function runAll(hosp, pFrac, seqCost, incSSI, useVar) {
+function runAll(hosp, pFrac, seqCost, incSSI, useVar, tatDays) {
   const totalHAIs = Object.entries(hosp.hais).reduce((a,[k,v])=>k!=="ssi"||incSSI?a+v:a,0);
   const costTable = useVar ? HAI_COSTS_VARIABLE : HAI_COSTS_TOTAL;
   const out={};
   for (const model of MODELS) {
     const seqs       = calcSeqs(hosp,model,incSSI);
-    const prevented  = calcPrevented(hosp,model,pFrac,incSSI);
+    const prevented  = calcPrevented(hosp,model,pFrac,incSSI,tatDays);
     const cost       = calcCosts(prevented.byType, costTable);
     const hacrp      = calcHACRP(hosp,totalHAIs,prevented.total);
     const prog       = seqs*seqCost;
@@ -193,8 +195,8 @@ function Slider({label, value, min, max, step, onChange, format}) {
   return (
     <div style={{marginBottom:16}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-        <span style={{fontSize:11,color:C.txt3,letterSpacing:"0.04em",textTransform:"uppercase",fontWeight:500}}>{label}</span>
-        <span style={{fontSize:13,fontWeight:600,color:C.teal,fontFamily:FONT_MONO}}>{format(value)}</span>
+        <span style={{fontSize:12,color:C.txt3,letterSpacing:"0.03em",textTransform:"uppercase",fontWeight:500}}>{label}</span>
+        <span style={{fontSize:14,fontWeight:600,color:C.teal,fontFamily:FONT_MONO}}>{format(value)}</span>
       </div>
       <input type="range" min={min} max={max} step={step} value={value}
         onChange={e=>onChange(parseFloat(e.target.value))}
@@ -223,17 +225,69 @@ function Tag({text, color=C.teal}) {
   return <span style={{display:"inline-block",padding:"1px 7px",fontSize:9,fontFamily:FONT_MONO,background:`${color}18`,border:`1px solid ${color}33`,borderRadius:4,color,fontWeight:600,letterSpacing:"0.05em"}}>{text}</span>;
 }
 
-function ScopeNotice() {
+function ModelOverview() {
+  const eqParts = [
+    {label:"HAIs prevented",    sub:"Transmission clusters\ndetected earlier",     color:C.teal},
+    {op:"×"},
+    {label:"Cost per HAI",      sub:"Variable attributable\ncost (2024 USD)",      color:C.teal},
+    {op:"+"},
+    {label:"HACRP savings",     sub:"Medicare penalty\nreduction",                 color:C.teal},
+    {op:"−"},
+    {label:"Sequencing cost",   sub:"Genomes/yr ×\ncost per genome",               color:C.txt2},
+    {op:"="},
+    {label:"Net annual value",  sub:"Hospital perspective\n1-year horizon",        color:C.green, bold:true},
+  ];
+  const included = [
+    "NHSN-defined HAIs: CLABSI, CAUTI, CDI, MRSA bacteremia, VAE (SSI optional)",
+    "Direct attributable costs from cross-transmission clusters detected by WGS",
+    "HACRP Medicare penalty exposure reduction (1% of Medicare FFS revenue)",
+    "Sequencing program cost across 4 surveillance intensity levels",
+  ];
+  const excluded = [
+    "Costs of non-genomic IP interventions triggered by outbreak suspicion (OR closures, cohorting, PPE)",
+    "Value of ruling out transmission — WGS prevents unnecessary interventions (not modeled)",
+    "Societal costs, readmissions, litigation, or long-term patient morbidity",
+    "Outbreaks involving NTM, Candida auris, or non-NHSN pathogens",
+  ];
   return (
-    <div style={{background:C.tealXp,border:`1px solid ${C.tealPale}`,borderLeft:`3px solid ${C.teal}`,borderRadius:8,padding:"14px 16px",marginBottom:24}}>
-      <div style={{fontSize:11,fontWeight:700,color:C.teal,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
-        <span>⚕</span> Model Scope — What This Calculator Does and Does Not Include
+    <div style={{background:C.s0,border:`1px solid ${C.border}`,borderRadius:14,padding:"28px 32px",marginBottom:28,boxShadow:C.sh1}}>
+      <div style={{fontSize:11,color:C.teal,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:600,marginBottom:6}}>How this model works</div>
+      <div style={{fontSize:21,fontWeight:600,fontFamily:FONT_DISPLAY,fontStyle:"italic",color:C.txt,marginBottom:22,lineHeight:1.3}}>
+        A one-year cost-benefit analysis of WGS surveillance<br/>for hospital infection prevention
       </div>
-      <div style={{fontSize:11,color:C.txt2,lineHeight:1.75}}>
-        <strong style={{color:C.txt}}>Included:</strong> Direct attributable costs of NHSN-defined HAIs (CLABSI, CAUTI, CDI, MRSA bacteremia, VAE, SSI) prevented by earlier detection of transmission clusters through WGS. HACRP Medicare penalty exposure reduction. Sequencing program cost.
+      {/* Equation */}
+      <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:4,background:C.tealXp,border:`1px solid ${C.tealPale}`,borderRadius:10,padding:"16px 20px",marginBottom:24}}>
+        {eqParts.map((item,i) =>
+          item.op ? (
+            <div key={i} style={{fontSize:18,color:C.txt3,fontWeight:300,padding:"0 6px"}}>{item.op}</div>
+          ) : (
+            <div key={i} style={{textAlign:"center",padding:"4px 12px"}}>
+              <div style={{fontSize:13,fontWeight:700,color:item.color,fontFamily:FONT_MONO,whiteSpace:"nowrap"}}>{item.label}</div>
+              <div style={{fontSize:10,color:C.txt3,marginTop:2,lineHeight:1.4,whiteSpace:"pre-line"}}>{item.sub}</div>
+            </div>
+          )
+        )}
       </div>
-      <div style={{fontSize:11,color:C.txt2,lineHeight:1.75,marginTop:6}}>
-        <strong style={{color:C.txt}}>Not included:</strong> Costs of <strong style={{color:C.txt}}>non-genomic infection control interventions</strong> triggered by suspected outbreaks — OR closures, unit cohorting, enhanced PPE, environmental decontamination campaigns, and staffing changes. These interventions may be initiated based on epidemiologic suspicion before WGS confirms or refutes a transmission cluster. WGS can <em>reduce</em> the cost of unnecessary interventions by ruling out transmission when isolates are unrelated, but this benefit is not modeled here. Societal costs, readmission costs, litigation, and long-term patient morbidity are also excluded per the hospital perspective methodology (AHRQ 2017, CHEERS 2022).
+      {/* Included / excluded */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:C.teal,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.07em"}}>Included</div>
+          {included.map((t,i) => (
+            <div key={i} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
+              <div style={{width:5,height:5,borderRadius:"50%",background:C.teal,marginTop:6,flexShrink:0}}/>
+              <div style={{fontSize:13,color:C.txt2,lineHeight:1.6}}>{t}</div>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:C.txt3,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.07em"}}>Not included</div>
+          {excluded.map((t,i) => (
+            <div key={i} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
+              <div style={{width:5,height:5,borderRadius:"50%",background:C.border2,marginTop:6,flexShrink:0}}/>
+              <div style={{fontSize:13,color:C.txt3,lineHeight:1.6}}>{t}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -252,14 +306,14 @@ function ModelCard({model, data, seqCost}) {
       <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:model.color,borderRadius:"12px 12px 0 0"}}/>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
         <div>
-          <div style={{fontSize:10,color:model.color,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:600,marginBottom:3}}>{model.label}</div>
-          <div style={{fontSize:16,fontWeight:600,color:C.txt,fontFamily:FONT_DISPLAY}}>{model.name}</div>
+          <div style={{fontSize:11,color:model.color,letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:600,marginBottom:3}}>{model.label}</div>
+          <div style={{fontSize:17,fontWeight:600,color:C.txt,fontFamily:FONT_DISPLAY}}>{model.name}</div>
         </div>
         <div style={{background:green?C.tealXp:C.redPale,border:`1px solid ${green?C.tealPale:"#fecaca"}`,borderRadius:8,padding:"5px 12px",fontSize:13,fontWeight:700,color:green?C.teal:C.red,fontFamily:FONT_MONO,whiteSpace:"nowrap"}}>
           {green?"+":""}{fm(netValue)}
         </div>
       </div>
-      <p style={{fontSize:11,color:C.txt3,lineHeight:1.6,marginBottom:16,minHeight:40}}>{model.desc}</p>
+      <p style={{fontSize:12,color:C.txt3,lineHeight:1.6,marginBottom:16,minHeight:36}}>{model.desc}</p>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 16px",paddingTop:12,borderTop:`1px solid ${C.border}`}}>
         {[
           ["Sequences/yr",     fn(seqs)],
@@ -272,13 +326,13 @@ function ModelCard({model, data, seqCost}) {
           ["Net value",        fm(netValue)],
         ].map(([k,v]) => (
           <div key={k}>
-            <div style={{fontSize:9,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,fontWeight:500}}>{k}</div>
-            <div style={{fontSize:13,fontWeight:600,color:C.txt,fontFamily:FONT_MONO}}>{v}</div>
+            <div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:2,fontWeight:500}}>{k}</div>
+            <div style={{fontSize:14,fontWeight:600,color:C.txt,fontFamily:FONT_MONO}}>{v}</div>
           </div>
         ))}
       </div>
       {model.valueType==="future" && (
-        <div style={{marginTop:12,fontSize:10,color:C.txt3,fontStyle:"italic",borderTop:`1px solid ${C.border}`,paddingTop:10}}>
+        <div style={{marginTop:12,fontSize:11,color:C.txt3,fontStyle:"italic",borderTop:`1px solid ${C.border}`,paddingTop:10}}>
           * Reflects future outbreak prevention via reservoir identification; current outbreak not preventable
         </div>
       )}
@@ -472,7 +526,7 @@ function CustomTab({pFrac, seqCost, incSSI, setIncSSI, useVariableCost}) {
               <div style={{fontSize:11,color:C.teal,fontWeight:700,marginBottom:10}}>{custom.name||"Your Hospital"} — Model Inputs</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
                 {[["Beds",custom.beds||"—"],["Admissions/yr",(custom.admissionsPerYear||0).toLocaleString()],["Patient-days/yr",(custom.patientDaysPerYear||0).toLocaleString()],["Total revenue",custom.totalRevenueMn?`$${custom.totalRevenueMn}M`:"—"],["Medicare rev.",custom.totalRevenueMn?fm(medRev):"—"],["Max HACRP",custom.totalRevenueMn?fm(medRev*0.01):"—"],["HAIs/yr",totalHAIs||"0"],["Cultures/yr",Object.values(custom.cultureVolumes).reduce((a,b)=>a+b,0).toLocaleString()]].map(([k,v]) => (
-                  <div key={k}><div style={{fontSize:9,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:2}}>{k}</div><div style={{fontSize:13,fontWeight:600,color:C.teal,fontFamily:FONT_MONO}}>{v}</div></div>
+                  <div key={k}><div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:2}}>{k}</div><div style={{fontSize:14,fontWeight:600,color:C.teal,fontFamily:FONT_MONO}}>{v}</div></div>
                 ))}
               </div>
             </div>
@@ -703,12 +757,13 @@ export default function App() {
   const [hIdx,   setHIdx]   = useState(1);
   const [pFrac,  setPFrac]  = useState(0.35);
   const [seqCost,setSeqCost]= useState(62);
+  const [tatDays,setTatDays]= useState(3);
   const [incSSI, setIncSSI] = useState(false);
   const [useVar, setUseVar] = useState(true);
   const [tab,    setTab]    = useState("overview");
 
   const hosp = HOSPITAL_SIZES[hIdx];
-  const {data:allData, totalHAIs} = useMemo(()=>runAll(hosp,pFrac,seqCost,incSSI,useVar),[hosp,pFrac,seqCost,incSSI,useVar]);
+  const {data:allData, totalHAIs} = useMemo(()=>runAll(hosp,pFrac,seqCost,incSSI,useVar,tatDays),[hosp,pFrac,seqCost,incSSI,useVar,tatDays]);
   const medRev   = hosp.totalRevenueMn*1e6*hosp.medicareRevenuePct;
   const costTable= useVar ? HAI_COSTS_VARIABLE : HAI_COSTS_TOTAL;
 
@@ -724,7 +779,7 @@ export default function App() {
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:FONT_BODY,color:C.txt}}>
       {/* Header */}
-      <div style={{background:C.s0,borderBottom:`1px solid ${C.border}`,padding:"20px 32px",position:"sticky",top:0,zIndex:100,boxShadow:C.sh1}}>
+      <div style={{background:C.s0,borderBottom:`1px solid ${C.border}`,padding:"18px 24px",position:"sticky",top:0,zIndex:100,boxShadow:C.sh1}}>
         <div style={{maxWidth:1160,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:2}}>
@@ -733,36 +788,35 @@ export default function App() {
               </div>
               <span style={{fontSize:13,fontWeight:600,color:C.teal,letterSpacing:"-0.01em"}}>Prospect Genomics</span>
             </div>
-            <div style={{fontSize:18,fontWeight:600,color:C.txt,fontFamily:FONT_DISPLAY,letterSpacing:"-0.01em"}}>HAI Prevention Value Calculator</div>
+            <div style={{fontSize:19,fontWeight:600,color:C.txt,fontFamily:FONT_DISPLAY,letterSpacing:"-0.01em",fontStyle:"italic"}}>HAI Prevention Value Calculator</div>
           </div>
-          <div style={{fontSize:11,color:C.txt3,textAlign:"right"}}>
-            <div>v2.1 · 28 peer-reviewed sources</div>
-            <div>Hospital perspective · 2024 USD · CHEERS 2022</div>
+          <div style={{fontSize:12,color:C.txt3,textAlign:"right"}}>
+            prospectgenomics.bio
           </div>
         </div>
       </div>
 
       <div style={{maxWidth:1160,margin:"0 auto",padding:"28px 24px 60px"}}>
-        <ScopeNotice/>
+        <ModelOverview/>
 
         {/* Controls */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:24}}>
           {/* Hospital selector */}
           <div style={{background:C.s0,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px 22px",boxShadow:C.sh1}}>
-            <div style={{fontSize:10,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600,marginBottom:14}}>Benchmark Hospital Profile</div>
+            <div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:14}}>Benchmark Hospital Profile</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
               {HOSPITAL_SIZES.map((h,i) => (
-                <button key={h.id} onClick={()=>setHIdx(i)} style={{padding:"10px 12px",borderRadius:8,cursor:"pointer",border:`1px solid ${i===hIdx?C.teal:C.border}`,background:i===hIdx?C.tealXp:C.bg,color:i===hIdx?C.teal:C.txt2,fontFamily:FONT_BODY,fontSize:11,fontWeight:i===hIdx?700:500,textAlign:"left",transition:"all 0.15s"}}>
-                  <div style={{fontSize:13,marginBottom:1,fontFamily:FONT_DISPLAY,fontStyle:"italic"}}>{h.label}</div>
-                  <div style={{fontSize:10,opacity:0.7}}>{h.beds}</div>
+                <button key={h.id} onClick={()=>setHIdx(i)} style={{padding:"10px 14px",borderRadius:8,cursor:"pointer",border:`1px solid ${i===hIdx?C.teal:C.border}`,background:i===hIdx?C.tealXp:C.bg,color:i===hIdx?C.teal:C.txt2,fontFamily:FONT_BODY,fontSize:12,fontWeight:i===hIdx?700:500,textAlign:"left",transition:"all 0.15s"}}>
+                  <div style={{fontSize:14,marginBottom:2,fontFamily:FONT_DISPLAY,fontStyle:"italic"}}>{h.label}</div>
+                  <div style={{fontSize:11,opacity:0.7}}>{h.beds}</div>
                 </button>
               ))}
             </div>
             <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {[["Total Revenue",`$${hosp.totalRevenueMn}M`],["Medicare Revenue",fm(medRev)],["Max HACRP Penalty",fm(medRev*0.01)],["Admissions/yr",hosp.admissionsPerYear.toLocaleString()],["Patient-days/yr",hosp.patientDaysPerYear.toLocaleString()],["HAIs/yr",totalHAIs+(incSSI?"":" (ex-SSI)")]].map(([k,v]) => (
                 <div key={k}>
-                  <div style={{fontSize:9,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1,fontWeight:500}}>{k}</div>
-                  <div style={{fontSize:13,fontWeight:600,color:C.teal,fontFamily:FONT_MONO}}>{v}</div>
+                  <div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:2,fontWeight:500}}>{k}</div>
+                  <div style={{fontSize:14,fontWeight:600,color:C.teal,fontFamily:FONT_MONO}}>{v}</div>
                 </div>
               ))}
             </div>
@@ -770,21 +824,23 @@ export default function App() {
 
           {/* Assumptions */}
           <div style={{background:C.s0,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px 22px",boxShadow:C.sh1}}>
-            <div style={{fontSize:10,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600,marginBottom:14}}>Global Model Assumptions</div>
+            <div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:14}}>Global Model Assumptions</div>
             <Slider label="Preventable Fraction (cross-transmission HAIs)" value={pFrac} min={0.15} max={0.65} step={0.01} onChange={setPFrac} format={pct}/>
             <Slider label="Sequencing Cost per Genome" value={seqCost} min={30} max={175} step={5} onChange={setSeqCost} format={v=>`$${v}`}/>
+            <Slider label="Sequencing Turnaround Time (days)" value={tatDays} min={1} max={7} step={1} onChange={setTatDays} format={v=>`${v} day${v!==1?"s":""}`}/>
+            <div style={{fontSize:11,color:C.txt3,marginTop:-10,marginBottom:14,lineHeight:1.5}}>Affects Models 1 & 2 only — faster TAT means earlier intervention. Reference: 3 days (R13, R19).</div>
 
             {/* SSI toggle */}
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
               <button onClick={()=>setIncSSI(!incSSI)} style={{width:40,height:22,borderRadius:11,cursor:"pointer",background:incSSI?C.teal:C.border,border:"none",position:"relative",flexShrink:0,transition:"background 0.2s"}}>
                 <div style={{width:16,height:16,borderRadius:"50%",background:C.s0,position:"absolute",top:3,left:incSSI?21:3,transition:"left 0.2s"}}/>
               </button>
-              <div><div style={{fontSize:11,color:incSSI?C.teal:C.txt3,fontWeight:600}}>{incSSI?"SSI Included":"SSI Excluded"}</div><div style={{fontSize:10,color:C.txt3}}>Wound culture isolates in sequencing volume</div></div>
+              <div><div style={{fontSize:12,color:incSSI?C.teal:C.txt3,fontWeight:600}}>{incSSI?"SSI Included":"SSI Excluded"}</div><div style={{fontSize:11,color:C.txt3}}>Wound culture isolates in sequencing volume</div></div>
             </div>
 
             {/* Cost perspective */}
             <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14}}>
-              <div style={{fontSize:10,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600,marginBottom:8}}>Cost Perspective <Tag text="CHEERS 2022 · R21" color={C.teal3}/></div>
+              <div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600,marginBottom:8}}>Cost Perspective <Tag text="CHEERS 2022 · R21" color={C.teal3}/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 {[["variable","Variable costs","~65% of total · avoidable · best practice"],["total","Total attributable","Includes fixed overhead · upper bound"]].map(([val,label,note]) => (
                   <button key={val} onClick={()=>setUseVar(val==="variable")} style={{padding:"8px 10px",borderRadius:7,cursor:"pointer",border:`1px solid ${(useVar&&val==="variable")||(!useVar&&val==="total")?C.teal:C.border}`,background:(useVar&&val==="variable")||(!useVar&&val==="total")?C.tealXp:C.bg,color:(useVar&&val==="variable")||(!useVar&&val==="total")?C.teal:C.txt2,fontFamily:FONT_BODY,fontSize:10,fontWeight:600,textAlign:"left",transition:"all 0.15s"}}>
@@ -793,7 +849,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <div style={{fontSize:9,color:C.txt3,marginTop:6}}>Costs inflated 2015→2024 via CPI Medical Care Services (+29%). Sources: R23, R26, R27. Variable fraction: 65% (Graves 2007, R25).</div>
+              <div style={{fontSize:11,color:C.txt3,marginTop:6}}>Costs inflated 2015→2024 via CPI Medical Care Services (+29%). Sources: R23, R26, R27.</div>
             </div>
           </div>
         </div>
@@ -825,15 +881,15 @@ export default function App() {
               <BreakdownTable models={MODELS} allData={allData} incSSI={incSSI} costTable={costTable}/>
             </div>
             <div style={{margin:"0 20px 20px",padding:"16px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:10}}>
-              <div style={{fontSize:10,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:12}}>HACRP Penalty Exposure · Max {fm(medRev*0.01)}/yr · Sources: R16, R17</div>
+              <div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600,marginBottom:12}}>HACRP Penalty Exposure · Max {fm(medRev*0.01)}/yr · Sources: R16, R17</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16}}>
                 {MODELS.map(m => {
                   const d = allData[m.id].hacrp;
                   return (
                     <div key={m.id}>
-                      <div style={{fontSize:10,color:m.color,marginBottom:8,fontWeight:700}}>{m.label}</div>
-                      {[["Baseline exposure",fm(d.baselineExposure),C.red],["After program",fm(d.reducedExposure),m.color],["HACRP savings","+"+fm(d.saved),C.green]].map(([k,v,c]) => (
-                        <div key={k} style={{marginBottom:6}}><div style={{fontSize:9,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.04em"}}>{k}</div><div style={{fontSize:13,fontFamily:FONT_MONO,color:c,fontWeight:700}}>{v}</div></div>
+                      <div style={{fontSize:11,color:m.color,marginBottom:8,fontWeight:700}}>{m.label}</div>
+                      {[["Baseline exposure",fm(d.baselineExposure),C.txt2],["After program",fm(d.reducedExposure),m.color],["HACRP savings","+"+fm(d.saved),C.green]].map(([k,v,c]) => (
+                        <div key={k} style={{marginBottom:6}}><div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.04em"}}>{k}</div><div style={{fontSize:14,fontFamily:FONT_MONO,color:c,fontWeight:700}}>{v}</div></div>
                       ))}
                     </div>
                   );
@@ -847,7 +903,7 @@ export default function App() {
         {tab==="pricing" && (
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
             <div style={{background:C.s0,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px 22px",boxShadow:C.sh1}}>
-              <div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:16}}>Net Value at Current Settings</div>
+              <div style={{fontSize:12,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600,marginBottom:16}}>Net Value at Current Settings</div>
               {MODELS.map(m => {
                 const d = allData[m.id];
                 const tot = d.costAvoided.total + d.hacrp.saved;
@@ -880,7 +936,7 @@ export default function App() {
                     <div style={{fontSize:11,color:m.color,fontWeight:700,marginBottom:8}}>{m.label} · {m.name}</div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
                       {[["Seqs/yr",fn(d.seqs)],["Ad hoc",fm(adHoc)],["Sub cost",fm(d.programCost)],["Saving",fm(adHoc-d.programCost)],["$/HAI prev.",d.haIsPrevented.total>0.5?fm(d.costPerHAI):"—"],["Seqs/HAI",d.haIsPrevented.total>0.5?fn(d.seqsPerHAI):"—"]].map(([k,v]) => (
-                        <div key={k}><div style={{fontSize:9,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:1,fontWeight:500}}>{k}</div><div style={{fontSize:12,fontFamily:FONT_MONO,color:C.txt,fontWeight:600}}>{v}</div></div>
+                        <div key={k}><div style={{fontSize:11,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:1,fontWeight:500}}>{k}</div><div style={{fontSize:13,fontFamily:FONT_MONO,color:C.txt,fontWeight:600}}>{v}</div></div>
                       ))}
                     </div>
                   </div>
