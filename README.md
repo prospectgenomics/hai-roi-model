@@ -19,7 +19,7 @@ Compares four WGS surveillance intensity levels across four hospital size tiers:
 
 Outputs: HAIs prevented per year, cost avoided (variable or total), HACRP Medicare penalty savings, net ROI, sequences/year, cost per HAI prevented.
 
-**Scope note:** The model covers NHSN-tracked HAIs (CLABSI, CAUTI, CDI, MRSA bacteremia, VAE, SSI) prevented by genomically detecting cross-transmission. It does not model the additional value of WGS ruling *out* transmission — e.g., avoiding unnecessary OR closures or unit cohortings when isolates prove unrelated. This represents additional ROI not captured here.
+**Scope note:** The model covers only NHSN-tracked HAIs (CLABSI, CAUTI, CDI, MRSA bacteremia, VAE, SSI) prevented by genomically detecting cross-transmission. It does not model the additional value of WGS ruling *out* transmission — e.g., instituting precautions when transmission is not actually occuring, screening, additional cleaning/device reprocessing, avoiding unnecessary OR closures or unit cohortings when isolates prove unrelated. This represents additional ROI not captured here-- the results of these models should therefore be considered a floor estimate of the ROI genomic epidemiology brings to healthcare IPC.
 
 ---
 
@@ -29,7 +29,7 @@ Outputs: HAIs prevented per year, cost avoided (variable or total), HACRP Medica
 - **Inflation:** CPI Medical Care Services index, 2015→2024 (+29%) per Dunn 2018
 - **Default cost type:** Variable/avoidable costs (~65% of total) per Graves 2007 — the correct denominator for prevention ROI
 - **Reporting standard:** CHEERS 2022 (ISPOR), ISPOR-SMDM modeling best practices
-- **28 peer-reviewed references** — all with live links in the Methods & References tab
+- **References** — all with live links in the Methods & References tab
 
 ---
 
@@ -52,7 +52,7 @@ npm start
 
 ---
 
-## Deploying to GitHub Pages (share with your team)
+## Deploying to GitHub Pages
 
 This repo includes a GitHub Actions workflow that automatically deploys to GitHub Pages on every push to `main`.
 
