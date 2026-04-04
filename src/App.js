@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROSPECT GENOMICS — HAI Prevention Value Calculator
@@ -346,8 +346,10 @@ function SInput({label,value,onChange,float=false,min=0,max}) {
   );
 }
 
-function Tag({text,color=C.teal}) {
-  return <span style={{display:"inline-block",padding:"1px 7px",fontSize:10,fontFamily:FONT_MONO,background:`${color}18`,border:`1px solid ${color}33`,borderRadius:4,color,fontWeight:600,letterSpacing:"0.05em"}}>{text}</span>;
+function Tag({text,color=C.teal,onClick}) {
+  const s={display:"inline-block",padding:"1px 7px",fontSize:10,fontFamily:FONT_MONO,background:`${color}18`,border:`1px solid ${color}33`,borderRadius:4,color,fontWeight:600,letterSpacing:"0.05em"};
+  if (onClick) return <button onClick={onClick} style={{...s,cursor:"pointer",background:`${color}25`,textDecoration:"underline dotted",fontFamily:FONT_MONO}}>{text}</button>;
+  return <span style={s}>{text}</span>;
 }
 
 function TATpicker({tatIdx,setTatIdx}) {
@@ -504,9 +506,9 @@ function ModelCard({model,data,pricingMode,showQALY}) {
 // ─────────────────────────────────────────────────────────────────────────────
 // BREAKDOWN TABLE
 // ─────────────────────────────────────────────────────────────────────────────
-function BreakdownTable({models,allData,incSSI,costTable}) {
+function BreakdownTable({models,allData,incSSI,costTable,navToRef}) {
   const types = incSSI?["clabsi","cauti","cdi","mrsa","vae","ssi"]:["clabsi","cauti","cdi","mrsa","vae"];
-  const srcRefs = {clabsi:"R1,R2",cauti:"R1",cdi:"R3,R4,R9",mrsa:"R2,R12,R14",vae:"R1",ssi:"R2,R7"};
+  const srcRefs = {clabsi:["R1","R2"],cauti:["R1"],cdi:["R3","R4","R9"],mrsa:["R2","R12","R14"],vae:["R1"],ssi:["R2","R7"]};
   return (
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
@@ -526,7 +528,7 @@ function BreakdownTable({models,allData,incSSI,costTable}) {
               <td style={{padding:"9px 13px",color:C.txt,fontWeight:600,fontSize:12}}>{HAI_LABELS[t]}</td>
               <td style={{padding:"9px 13px",color:C.txt2,fontVariantNumeric:"tabular-nums",textAlign:"right",fontSize:12}}>{fm(costTable[t])}</td>
               <td style={{padding:"9px 13px",color:C.txt3,fontVariantNumeric:"tabular-nums",textAlign:"right",fontSize:12}}>{Math.round(TRANS_FRAC[t]*100)}%</td>
-              <td style={{padding:"9px 13px"}}><Tag text={srcRefs[t]} color={C.teal}/></td>
+              <td style={{padding:"9px 13px"}}><div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{srcRefs[t].map(r=><Tag key={r} text={r} color={C.teal} onClick={navToRef?()=>navToRef(r):undefined}/>)}</div></td>
               {models.map(m=>{const n=allData[m.id]?.haIsPrevented?.byType?.[t]??0;
                 return <td key={m.id} style={{padding:"9px 13px",fontVariantNumeric:"tabular-nums",textAlign:"right",color:n>0?m.color:C.border2,fontWeight:n>0?700:400,fontSize:12}}>{n>0?fn(n):"—"}</td>;})}
             </tr>
@@ -710,9 +712,16 @@ function PSATab({hospital,pFrac,subFee,adHocPrice,incSSI,useVar,tatIdx,adv,prici
 // ─────────────────────────────────────────────────────────────────────────────
 // DOCUMENTATION TAB
 // ─────────────────────────────────────────────────────────────────────────────
-function DocumentationTab({useVar}) {
+function DocumentationTab({useVar,docSec,setDocSec,highlightRef,navToRef}) {
   const [openRef,setOpenRef] = useState(null);
-  const [docSec,setDocSec]   = useState("assumptions");
+
+  // Scroll to highlighted reference whenever highlightRef or docSec changes
+  useEffect(()=>{
+    if (highlightRef && docSec==="references") {
+      const el = document.getElementById("ref-"+highlightRef);
+      if (el) el.scrollIntoView({behavior:"smooth",block:"center"});
+    }
+  },[highlightRef,docSec]);
   const activeCosts = useVar?HAI_COSTS_VARIABLE:HAI_COSTS_TOTAL;
 
   const assumptions = [
@@ -781,6 +790,7 @@ function DocumentationTab({useVar}) {
                   <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
                     {item.refs.map(r=>(
                       <button key={r} onClick={()=>setOpenRef(openRef===r?null:r)}
+                        title="Click to preview · right-click for full reference"
                         style={{padding:"2px 7px",fontSize:10,borderRadius:4,cursor:"pointer",border:`1px solid ${openRef===r?C.teal:C.border}`,background:openRef===r?C.tealXp:C.bg,color:openRef===r?C.teal:C.txt3,fontFamily:FONT_MONO,fontWeight:600}}>
                         {REFS[r]?.tag||r}
                       </button>
@@ -789,7 +799,10 @@ function DocumentationTab({useVar}) {
                   </div>
                   {item.refs.includes(openRef)&&REFS[openRef]&&(
                     <div style={{marginTop:9,padding:"10px 13px",background:C.tealXp,border:`1px solid ${C.tealPale}`,borderRadius:6}}>
-                      <div style={{fontSize:11,color:C.teal,fontWeight:700,marginBottom:2}}>[{REFS[openRef].id}] {REFS[openRef].tag} · {REFS[openRef].org} ({REFS[openRef].year})</div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:2}}>
+                        <div style={{fontSize:11,color:C.teal,fontWeight:700}}>[{REFS[openRef].id}] {REFS[openRef].tag} · {REFS[openRef].org} ({REFS[openRef].year})</div>
+                        {navToRef&&<button onClick={()=>navToRef(openRef)} style={{fontSize:9,color:C.teal,border:`1px solid ${C.tealPale}`,background:C.s0,borderRadius:4,padding:"2px 7px",cursor:"pointer",flexShrink:0,marginLeft:8,fontFamily:FONT_BODY}}>Full ref →</button>}
+                      </div>
                       <div style={{fontSize:11,color:C.txt2,marginBottom:3}}>{REFS[openRef].title}</div>
                       <div style={{fontSize:10,color:C.txt2,marginBottom:5,lineHeight:1.4}}>{REFS[openRef].note}</div>
                       <a href={REFS[openRef].url} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:C.teal2,wordBreak:"break-all"}}>{REFS[openRef].url}</a>
@@ -811,7 +824,7 @@ function DocumentationTab({useVar}) {
             <Tag text="CHEERS 2022" color={C.teal}/>{" "}<Tag text="ISPOR-SMDM 2012" color={C.teal}/>
             <div style={{fontSize:16,fontWeight:700,color:C.txt,fontFamily:FONT_DISPLAY,margin:"7px 0 8px"}}>Methods, Formula & Cost Basis</div>
             <p style={{fontSize:12,color:C.txt2,lineHeight:1.7,margin:0}}>
-              Static decision-analytic cost-benefit analysis from the <strong>hospital perspective</strong> following CHEERS 2022 <Tag text="R21" color={C.teal}/> and ISPOR-SMDM 2012 <Tag text="R22" color={C.teal}/>. Comparator: conventional epi with no molecular typing. All costs 2024 USD. 1-year horizon. No discounting.
+              Static decision-analytic cost-benefit analysis from the <strong>hospital perspective</strong> following CHEERS 2022 <Tag text="R21" color={C.teal} onClick={navToRef?()=>navToRef("R21"):undefined}/> and ISPOR-SMDM 2012 <Tag text="R22" color={C.teal} onClick={navToRef?()=>navToRef("R22"):undefined}/>. Comparator: conventional epi with no molecular typing. All costs 2024 USD. 1-year horizon. No discounting.
             </p>
           </div>
           <div style={{marginBottom:22}}>
@@ -861,8 +874,10 @@ function DocumentationTab({useVar}) {
 
       {docSec==="references" && (
         <div>
-          {Object.values(REFS).map(ref=>(
-            <div key={ref.id} style={{marginBottom:7,padding:"10px 13px",background:C.s0,border:`1px solid ${C.border}`,borderRadius:7}}>
+          {Object.values(REFS).map(ref=>{
+            const isHighlighted = ref.id===highlightRef;
+            return (
+            <div id={"ref-"+ref.id} key={ref.id} style={{marginBottom:7,padding:"10px 13px",background:isHighlighted?C.tealXp:C.s0,border:`1px solid ${isHighlighted?C.teal:C.border}`,borderRadius:7,transition:"background 0.3s,border 0.3s"}}>
               <div style={{display:"flex",gap:9,alignItems:"flex-start"}}>
                 <span style={{fontSize:10,color:C.teal,fontFamily:FONT_MONO,fontWeight:700,flexShrink:0,minWidth:26}}>[{ref.id}]</span>
                 <div>
@@ -873,7 +888,7 @@ function DocumentationTab({useVar}) {
                 </div>
               </div>
             </div>
-          ))}
+          );})}
         </div>
       )}
     </div>
@@ -893,9 +908,13 @@ export default function App() {
   const [incSSI,      setIncSSI]      = useState(false);
   const [useVar,      setUseVar]      = useState(false);
   const [tab,         setTab]         = useState("overview");
-  const [pricingMode, setPricingMode] = useState("sub");
-  const [showQALY,    setShowQALY]    = useState(false);
-  const [openSec,     setOpenSec]     = useState({profile:true,hais:true,cultures:false,assumptions:true,advanced:false});
+  const [pricingMode,  setPricingMode]  = useState("sub");
+  const [showQALY,     setShowQALY]     = useState(false);
+  const [openSec,      setOpenSec]      = useState({profile:true,hais:true,cultures:false,assumptions:true,advanced:false});
+  const [docSec,       setDocSec]       = useState("assumptions");
+  const [highlightRef, setHighlightRef] = useState(null);
+
+  const navToRef = r => { setTab("docs"); setDocSec("references"); setHighlightRef(r); };
 
   // Advanced parameters (all user-adjustable)
   const [adv, setAdv] = useState({
@@ -1122,7 +1141,7 @@ export default function App() {
                   <div style={{fontSize:13,fontWeight:700,color:C.txt}}>HAIs prevented per year{incSSI?" · SSI included":""}</div>
                   <div style={{fontSize:10,color:C.txt3}}>Edit HAI counts in sidebar · {useVar?"Variable (65%)":"Total attributable"} costs</div>
                 </div>
-                <BreakdownTable models={MODELS} allData={allData} incSSI={incSSI} costTable={costTable}/>
+                <BreakdownTable models={MODELS} allData={allData} incSSI={incSSI} costTable={costTable} navToRef={navToRef}/>
               </div>
               <div style={card}>
                 <div style={{fontSize:10,color:C.txt3,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:14}}>HACRP Penalty Exposure · Max {fm(medRev*0.01)}/yr</div>
@@ -1220,7 +1239,7 @@ export default function App() {
           )}
 
           {/* ── DOCUMENTATION ── */}
-          {tab==="docs"&&<DocumentationTab useVar={useVar}/>}
+          {tab==="docs"&&<DocumentationTab useVar={useVar} docSec={docSec} setDocSec={setDocSec} highlightRef={highlightRef} navToRef={navToRef}/>}
         </div>
       </div>
     </div>
