@@ -588,7 +588,7 @@ function DocumentationTab({useVar}) {
     ]},
   ];
 
-  const Row = ({cells}) => cells;
+  const Row = (cells) => cells;
   const Tbl = ({rows, hdrs}) => (
     <div style={{overflowX:"auto",marginBottom:16}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
