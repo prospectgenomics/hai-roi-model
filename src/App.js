@@ -399,7 +399,7 @@ function BreakdownTable({models, allData, incSSI, costTable}) {
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
         <thead>
           <tr style={{borderBottom:`2px solid ${C.border}`}}>
-            {["HAI Type","Cost/Case","Trans. Frac.","Sources"].map((h,i) => (
+            {["HAI Type","Avg Cost per Case (2024$)","Trans. Frac.","Sources"].map((h,i) => (
               <th key={h} style={{textAlign:i>0&&i<3?"right":"left",padding:"10px 14px",color:C.txt3,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em",fontSize:10}}>{h}</th>
             ))}
             {models.map(m => (
